@@ -1,0 +1,57 @@
+on: [push]
+name: CI
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        steps:
+        # checkout the repo
+        - name: 'Checkout GitHub Action'
+          uses: actions/checkout@master
+          
+        - name: 'Login via Azure CLI'
+          uses: azure/login@v1
+          with:
+            creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+        - name: 'Build and push image'
+          uses: azure/docker-login@v1
+          with:
+            login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+            username: ${{ secrets.REGISTRY_USERNAME }}
+            password: ${{ secrets.REGISTRY_PASSWORD }}
+        - run: |
+            docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/service-b:master
+            docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/service-b:master
+    
+        - name: Set AKS Context
+          uses: azure/aks-set-context@v1
+          with:
+              creds: '${{ secrets.AZURE_CREDENTIALS }}' # Azure credentials
+              resource-group: 'homework-rg'
+              cluster-name: 'homework-aks'
+          id: login
+          
+        - name: Set imagePullSecret
+          uses: azure/k8s-create-secret@v1
+          with:
+            namespace: 'service-b'
+            container-registry-url: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+            container-registry-username: ${{ secrets.REGISTRY_USERNAME }}
+            container-registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+            secret-name: 'acr-auth'
+          id: create-secret
+        
+        - uses: actions/checkout@v1
+
+        - name: 'Deploy'
+          uses: 'deliverybot/helm@v1'
+          with:
+            release: 'serviceb'
+            namespace: 'service-b'
+            chart: 'helm'
+            token: '${{ github.token }}'
+            value-files: 'values.yml'
+            helm: helm3
+          env:
+            KUBECONFIG_FILE: '${{ secrets.AKS_KUBECONFIG }}'
